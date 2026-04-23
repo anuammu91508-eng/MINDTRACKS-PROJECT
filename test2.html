@@ -1,1 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MindTrace Demo Chat</title>
+  <style>
+    body {
+      background: #111b21;
+      color: #e9edef;
+      font-family: 'Segoe UI', sans-serif;
+      padding: 20px;
+    }
 
+    h2 {
+      color: #25d366;
+    }
+
+    .toggle {
+      margin: 10px 0;
+    }
+
+    .contact {
+      background: #202c33;
+      border-radius: 10px;
+      padding: 15px;
+      margin: 20px 0;
+      max-width: 600px;
+    }
+
+    .messages {
+      background: #111b21;
+      padding: 10px;
+      border-radius: 8px;
+      height: 200px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .messages p {
+      padding: 8px 12px;
+      border-radius: 15px;
+      margin: 5px 0;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+
+    .sent {
+      align-self: flex-end;
+      background: #005c4b;
+      color: white;
+      margin-left: auto;
+    }
+
+    .received {
+      background: #2a3942;
+      color: white;
+      align-self: flex-start;
+    }
+
+    .input-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    .chat-input {
+      flex: 1;
+      padding: 8px;
+      border-radius: 8px;
+      border: none;
+      background: #2a3942;
+      color: white;
+    }
+
+    .chat-input:focus {
+      outline: 2px solid #25d366;
+    }
+
+    .btn {
+      background: #25d366;
+      border: none;
+      color: black;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .btn:disabled {
+      background: #555;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+
+<h2>💬 MindTrace Demo Chat</h2>
+<label class="toggle">
+  <input type="checkbox" id="redToggle" checked> Enable Red Teaming
+</label>
+
+<div id="chats">
+  <!-- Chat contacts will be injected -->
+</div>
+
+<script>
+  const contacts = {
+    "Alice": { limit: 3, messages: [], blocked: false, label: "saved" },
+    "+919999888877": { limit: 2, messages: [], blocked: false, label: "unsaved_with_chat" },
+    "+911234567890": { limit: 1, messages: [], blocked: false, label: "unsaved" }
+  };
+
+  const addMessage = (div, text, type = "received") => {
+    const p = document.createElement("p");
+    p.className = type;
+    p.textContent = text;
+    div.querySelector(".messages").appendChild(p);
+    div.querySelector(".messages").scrollTop = div.querySelector(".messages").scrollHeight;
+  };
+
+  const simulateRedTeamReply = (div, replyText) => {
+    setTimeout(() => addMessage(div, "🤖 MindTrace: " + replyText, "sent"), 1000);
+  };
+
+  const receiveMsg = async (contact, div, input) => {
+    const text = input.value.trim();
+    if (!text || contacts[contact].blocked) return;
+
+    addMessage(div, `👤 ${contact}: ${text}`, "received");
+    input.value = "";
+
+    try {
+      const predictRes = await fetch("http://127.0.0.1:8000/predict", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, model: "nb" })
+      });
+
+      const result = await predictRes.json();
+      console.log("🧠 Prediction result:", result);
+
+      if (!result.block) return;
+
+      contacts[contact].messages.push(result.label);
+
+      // ✅ Red Teaming Trigger
+      if (document.getElementById("redToggle").checked) {
+        const simRes = await fetch("http://127.0.0.1:8000/simulate_response", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, model: "nb" })
+        });
+        const simData = await simRes.json();
+        simulateRedTeamReply(div, simData.bait_reply);
+      }
+
+      if (contacts[contact].messages.length >= contacts[contact].limit) {
+        contacts[contact].blocked = true;
+        alert(`🚫 ${contact} has been blocked due to repeated suspicious messages.`);
+        input.disabled = true;
+        div.querySelector(".send-btn").disabled = true;
+        div.querySelector(".receive-btn").disabled = true;
+      }
+
+    } catch (err) {
+      console.error("❌ Risk/Red teaming error:", err);
+    }
+  };
+
+  const sendMsg = (contact, div, input) => {
+    const text = input.value.trim();
+    if (!text || contacts[contact].blocked) return;
+
+    addMessage(div, `🧑‍💻 You: ${text}`, "sent");
+    input.value = "";
+  };
+
+  const renderChats = () => {
+    const chats = document.getElementById("chats");
+    for (const name in contacts) {
+      const wrapper = document.createElement("div");
+      wrapper.className = "contact";
+
+      const title = document.createElement("h3");
+      title.innerText = `${name} (${contacts[name].label}, ${contacts[name].limit} chances)`;
+      wrapper.appendChild(title);
+
+      const msgBox = document.createElement("div");
+      msgBox.className = "messages";
+      wrapper.appendChild(msgBox);
+
+      const inputGroup = document.createElement("div");
+      inputGroup.className = "input-group";
+
+      const input = document.createElement("input");
+      input.className = "chat-input";
+      input.placeholder = "Type a message...";
+
+      const sendBtn = document.createElement("button");
+      sendBtn.className = "btn send-btn";
+      sendBtn.innerText = "Send";
+      sendBtn.onclick = () => sendMsg(name, wrapper, input);
+
+      const receiveBtn = document.createElement("button");
+      receiveBtn.className = "btn receive-btn";
+      receiveBtn.innerText = "Receive";
+      receiveBtn.onclick = () => receiveMsg(name, wrapper, input);
+
+      inputGroup.appendChild(input);
+      inputGroup.appendChild(sendBtn);
+      inputGroup.appendChild(receiveBtn);
+
+      wrapper.appendChild(inputGroup);
+      chats.appendChild(wrapper);
+    }
+  };
+
+  renderChats();
+</script>
+
+</body>
+</html>
